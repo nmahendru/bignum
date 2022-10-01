@@ -4,7 +4,10 @@
 #include <string.h>
 
 #define SIZE 5
-#define LIMB_SIZE 64
+#define LIMB_SIZE 63
+
+
+
 struct bignum {
   // limbs are stored in little endian order.
   // The idea here is that we save a big num as 63 bit chunks and then
@@ -16,19 +19,20 @@ struct bignum {
   uint32_t bitsize;
 };
 
-int find_msb(uint64_t in){
+int find_msb(uint64_t in) {
   int count = 0;
-  while(in) {
+  while (in) {
     count++;
     in >>= 1;
   }
   return count;
 }
+
 void add(struct bignum *out, struct bignum *src1, struct bignum *src2) {
   uint64_t carry = 0;
-  int bits = src1->bitsize > src2->bitsize ? src1->bitsize : src2->bitsize; 
+  int bits = src1->bitsize > src2->bitsize ? src1->bitsize : src2->bitsize;
   int i = 0;
-  for (; bits > 0; bits -= (LIMB_SIZE - 1), i++) {
+  for (; bits > 0; bits -= (LIMB_SIZE), i++) {
     out->limb[i] = src1->limb[i] + src2->limb[i];
     out->limb[i] += carry;
     // Is MSB 1 ?
@@ -38,13 +42,13 @@ void add(struct bignum *out, struct bignum *src1, struct bignum *src2) {
     } else {
       carry = 0;
     }
-    if(bits - (LIMB_SIZE-1) > 0){
-      out->bitsize +=  (LIMB_SIZE  - 1);
+    if (bits - (LIMB_SIZE) > 0) {
+      out->bitsize += (LIMB_SIZE);
     }
   }
-  uint64_t last_limb = out->limb[out->bitsize/(LIMB_SIZE - 1)];
+  uint64_t last_limb = out->limb[out->bitsize / (LIMB_SIZE)];
 
-  out->bitsize +=  find_msb(out->limb[out->bitsize/(LIMB_SIZE - 1)]);
+  out->bitsize += find_msb(out->limb[out->bitsize / (LIMB_SIZE)]);
 }
 
 int rightshift(struct bignum *a, uint32_t val) {
@@ -67,8 +71,6 @@ int rightshift(struct bignum *a, uint32_t val) {
   return retval;
 }
 
-
-
 void printbignum(struct bignum *a) {
   for (int i = 0; i < 5; i++) {
     printf("%016llX, ", a->limb[i]);
@@ -77,34 +79,44 @@ void printbignum(struct bignum *a) {
 }
 
 void printhexbignum(struct bignum *b) {
+  int effective_limbs = (b->bitsize / (LIMB_SIZE)) + 1;
   uint64_t vals[5];
-  uint64_t orig[5] = {b->limb[0], b->limb[1], b->limb[2], b->limb[3],
-                      b->limb[4]};
-  for (int i = 0; i < 5; i++) {
+  uint64_t orig[5] = {
+    b->limb[0],
+    b->limb[1],
+    b->limb[2],
+    b->limb[3],
+    b->limb[4]
+  };
+
+  for (int i = 0; i < effective_limbs; i++) {
     vals[i] = orig[i];
-    if (i < 4) {
+    if (i < (effective_limbs - 1)) {
+      // How many bits need to shift into limb i.
       int k = i + 1;
+
       uint64_t temp_limb = orig[k];
-      while (k > 0) {
+      while (k) {
         uint64_t temp = temp_limb & 0x1;
         temp_limb >>= 1;
-        vals[i] |= (temp << (63 - k + 1));
+        vals[i] |= (temp << (LIMB_SIZE - k - 2));
         k--;
       }
       orig[i + 1] = temp_limb;
     }
   }
   printf("0x");
-  for (int i = 4; i >= 0; i--) {
+  for (int i = effective_limbs - 1; i >= 0; i--) {
     printf("%016llX", vals[i]);
   }
   printf("\n");
 }
+
 // int a = init_from_decimal_string(&a, "34455999999999999999999999999999")
 //
 void init_from_decimal_string(struct bignum *a, const char *num) {
   char *c = (char *)calloc(strlen(num) + 1, 1);
-  unsigned char buf[63*SIZE] = {0};
+  unsigned char buf[63 * SIZE] = {0};
   if (c == NULL) {
     printf("malloc failed\n");
     exit(1);
@@ -128,12 +140,11 @@ void init_from_decimal_string(struct bignum *a, const char *num) {
       // process val;
       int rem = val % 2;
       // if r is at start don't add zeros.
-      if(val/2 == 0 && r == start && !singledigit){
+      if (val / 2 == 0 && r == start && !singledigit) {
         val = rem;
         continue;
-
       }
-      val = val/2;
+      val = val / 2;
       *r = val + '0';
       r++;
       val = rem;
@@ -141,29 +152,27 @@ void init_from_decimal_string(struct bignum *a, const char *num) {
 
     *r = 0;
 
-    //val can either be 1 or 0 here
+    // val can either be 1 or 0 here
     if (val) {
-      buf[a->bitsize/8] |= 1 << (a->bitsize % 8);
+      buf[a->bitsize / 8] |= 1 << (a->bitsize % 8);
     }
     a->bitsize += 1;
-
-    printf("quotient:%s bit:%d\n", start, val);
 
   }
   int bits = 0;
   int limb = 0;
   int index = 0;
   int shiftindex = 0;
-  while(bits < a->bitsize){
-    uint64_t bit = (buf[index/8] >> (index % 8)) & 0x1;
+  while (bits < a->bitsize) {
+    uint64_t bit = (buf[index / 8] >> (index % 8)) & 0x1;
 
-    if (bit){
-      a->limb[limb] |=  bit <<  shiftindex ;
+    if (bit) {
+      a->limb[limb] |= bit << shiftindex;
     }
     bits++;
     index++;
     shiftindex++;
-    if( bits % (LIMB_SIZE-1) == 0){
+    if (bits % (LIMB_SIZE) == 0) {
       limb++;
       shiftindex = 0;
     }
@@ -171,12 +180,18 @@ void init_from_decimal_string(struct bignum *a, const char *num) {
   free(start);
 }
 
+// assuming this array is big enough.
+// recommended size is 10000
+void bignum_to_decimal_string(char num[100000], struct bignum * a){
+  
+}
+
 int main() {
-  struct bignum num1 = {{0,0,0,0,0}, 0};
+  struct bignum num1 = {{0, 0, 0, 0, 0}, 0};
   init_from_decimal_string(&num1, "333");
-  struct bignum num2 = {{0,0,0,0,0}, 0};
+  struct bignum num2 = {{0, 0, 0, 0, 0}, 0};
   init_from_decimal_string(&num2, "300");
-  struct bignum out = {{0,0,0,0,0}, 0};
+  struct bignum out = {{0, 0, 0, 0, 0}, 0};
   add(&out, &num1, &num2);
   printhexbignum(&out);
 
